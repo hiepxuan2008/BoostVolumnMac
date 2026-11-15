@@ -57,7 +57,7 @@ final class BoostController: ObservableObject {
         launchAtLogin = LaunchAtLogin.isEnabled
         devices = AudioDevices.outputDevices()
         observer = DeviceChangeObserver { [weak self] in self?.devicesChanged() }
-        if isEnabled { startEngine() }
+        if isEnabled { startEngine(userInitiated: false) }
     }
 
     /// Stops boosting so the original system audio is unmuted. Call before quitting.
@@ -71,7 +71,15 @@ final class BoostController: ObservableObject {
                             systemDefaultUID: AudioDevices.defaultOutputUID())
     }
 
-    private func startEngine() {
+    private var retryTask: Task<Void, Never>?
+    private static let maxRetries = 2
+
+    /// - Parameter userInitiated: true when the user just turned boost on or picked a device.
+    ///   Automatic restarts (launch, device changes) retry instead of switching boost off,
+    ///   so a device that isn't ready yet doesn't permanently disable boosting.
+    private func startEngine(userInitiated: Bool = true, attempt: Int = 0) {
+        retryTask?.cancel()
+        retryTask = nil
         guard let device = resolvedDevice() else {
             stopEngine()
             errorMessage = "No output device available."
@@ -84,13 +92,23 @@ final class BoostController: ObservableObject {
         } catch {
             stopEngine()
             errorMessage = "Couldn't start boost (\(error))"
-            // Assigning inside isEnabled's own didSet won't re-run it, so persist explicitly.
-            settings.isEnabled = false
-            isEnabled = false
+            if userInitiated {
+                // Assigning inside isEnabled's own didSet won't re-run it, so persist explicitly.
+                settings.isEnabled = false
+                isEnabled = false
+            } else if attempt < Self.maxRetries {
+                retryTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled, let self, self.isEnabled else { return }
+                    self.startEngine(userInitiated: false, attempt: attempt + 1)
+                }
+            }
         }
     }
 
     private func stopEngine() {
+        retryTask?.cancel()
+        retryTask = nil
         engine.stop()
         activeDevice = nil
     }
@@ -100,7 +118,7 @@ final class BoostController: ObservableObject {
         guard isEnabled else { return }
         let resolved = resolvedDevice()
         if resolved?.uid != activeDevice?.uid || !engine.isRunning {
-            startEngine()
+            startEngine(userInitiated: false)
         }
     }
 }

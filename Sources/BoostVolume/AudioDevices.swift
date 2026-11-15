@@ -55,10 +55,20 @@ enum AudioDevices {
         return ids
     }
 
-    private static func hasOutputStreams(_ id: AudioObjectID) -> Bool {
-        var addr = address(kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeOutput)
+    /// Number of streams the device has in `scope` (input or output).
+    static func streamCount(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Int {
+        var addr = address(kAudioDevicePropertyStreams, scope: scope)
         var size: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr && size > 0
+        guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr else { return 0 }
+        return Int(size) / MemoryLayout<AudioStreamID>.size
+    }
+
+    private static func hasOutputStreams(_ id: AudioObjectID) -> Bool {
+        streamCount(id, scope: kAudioObjectPropertyScopeOutput) > 0
+    }
+
+    private static func isVirtual(_ id: AudioObjectID) -> Bool {
+        get(id, kAudioDevicePropertyTransportType, initial: UInt32(0)) == kAudioDeviceTransportTypeVirtual
     }
 
     /// All devices that can play audio, excluding our own aggregate devices.
@@ -68,7 +78,7 @@ enum AudioDevices {
                   let uid = string(id, kAudioDevicePropertyDeviceUID),
                   !uid.hasPrefix(boostAggregateUIDPrefix) else { return nil }
             let name = string(id, kAudioObjectPropertyName) ?? uid
-            return OutputDevice(id: id, uid: uid, name: name)
+            return OutputDevice(id: id, uid: uid, name: name, isVirtual: isVirtual(id))
         }
     }
 

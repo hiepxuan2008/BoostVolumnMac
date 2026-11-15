@@ -26,7 +26,8 @@ struct MenuView: View {
             Picker("Output", selection: $controller.selectedDeviceUID) {
                 Text("System Default").tag(String?.none)
                 ForEach(controller.devices) { device in
-                    Text(device.name).tag(String?.some(device.uid))
+                    Text(device.isVirtual ? "\(device.name) (virtual)" : device.name)
+                        .tag(String?.some(device.uid))
                 }
                 if let uid = controller.selectedDeviceUID,
                    !controller.devices.contains(where: { $0.uid == uid }) {
@@ -36,6 +37,13 @@ struct MenuView: View {
 
             Toggle("Launch at login", isOn: $controller.launchAtLogin)
                 .toggleStyle(.checkbox)
+
+            if controller.activeDevice?.isVirtual == true {
+                Text("Boosting into a virtual device can loop or go silent. Pick your speakers or headphones.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let error = controller.errorMessage {
                 Text(error)
